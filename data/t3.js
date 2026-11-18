@@ -521,6 +521,76 @@ window.QBANK.push({
      "debug tacacs solo se desactiva reiniciando el router",
      "debug aaa authentication se desactiva automáticamente a los 5 minutos",
      "debug tacacs requiere el comando clear tacacs",
-     "Todos los comandos debug se deshabilitan con su forma no (no debug …) o con undebug all.", 1]
+     "Todos los comandos debug se deshabilitan con su forma no (no debug …) o con undebug all.", 1],
+
+    ["Según la tabla del temario, ¿qué diferencia hay entre TACACS+ y RADIUS en el uso de CHAP?",
+     "TACACS+ usa desafío-respuesta bidireccional y RADIUS unidireccional",
+     "TACACS+ usa CHAP unidireccional y RADIUS bidireccional",
+     "Ninguno de los dos soporta CHAP",
+     "Ambos usan CHAP bidireccional",
+     "En CHAP, TACACS+ ofrece desafío y respuesta bidireccional; RADIUS solo unidireccional (del servidor RADIUS al cliente).", 1],
+
+    ["Según la tabla comparativa, ¿qué protocolo permite autorizar comandos del router por usuario o por grupo?",
+     "TACACS+",
+     "RADIUS",
+     "Ambos",
+     "Ninguno",
+     "TACACS+ permite autorizar comandos del router por usuario o por grupo; RADIUS no tiene esa opción."],
+
+    ["Según la tabla comparativa, ¿cómo es el accounting de cada protocolo?",
+     "Limitado en TACACS+ y extenso en RADIUS",
+     "Extenso en TACACS+ y limitado en RADIUS",
+     "Inexistente en ambos",
+     "Igual en los dos",
+     "TACACS+ tiene un accounting limitado y RADIUS extenso, de ahí que los ISP lo prefieran para facturación.", 1],
+
+    ["Según la tabla comparativa, ¿qué protocolo es mayoritariamente soportado por Cisco y cuál es un estándar abierto?",
+     "TACACS+ es mayoritariamente de Cisco; RADIUS es un estándar abierto (RFC)",
+     "RADIUS es mayoritariamente de Cisco; TACACS+ es abierto",
+     "Ambos son estándares abiertos de IETF",
+     "Ambos son propietarios de Cisco",
+     "TACACS+ es mostly Cisco supported; RADIUS es un estándar abierto definido por RFC."],
+
+    ["¿Qué palabra clave de aaa authentication login usa un subconjunto de servidores RADIUS o TACACS+ definido con aaa group server?",
+     "group nombre-de-grupo",
+     "group radius",
+     "local-case",
+     "enable",
+     "group radius y group tacacs+ usan la lista de todos los servidores; group nombre usa un subconjunto definido con aaa group server.", 1],
+
+    ["¿Qué método de aaa authentication login usa la contraseña configurada en la línea?",
+     "line",
+     "local",
+     "enable",
+     "none",
+     "La sintaxis incluye line (contraseña de línea), local, local-case, enable, none, krb5 y group, entre otros."],
+
+    ["En la configuración RADIUS de ejemplo, ¿cómo se indican los puertos de autenticación y accounting?",
+     "address ipv4 192.168.1.101 auth-port 1812 acct-port 1813",
+     "radius server SERVER-R port 1812 1813 accounting",
+     "key auth-port 1812 acct-port 1813 RADIUS-Pa55w0rd",
+     "single-connection auth-port 1812 acct-port 1813",
+     "Dentro de radius server se usa address ipv4 IP auth-port 1812 acct-port 1813 y luego key para la clave compartida."],
+
+    ["¿Qué hace authentication port-control force-unauthorized?",
+     "Mantiene el puerto en estado no autorizado e ignora todos los intentos de autenticación del cliente",
+     "Permite enviar y recibir tráfico sin autenticación 802.1X, que es el valor por defecto",
+     "Habilita la autenticación 802.1X y deja pasar solo tramas EAPOL hasta autenticar",
+     "Autoriza al cliente automáticamente tras el primer intento de autenticación fallido",
+     "auto habilita 802.1X; force-authorized (valor por defecto) envía y recibe sin 802.1X; force-unauthorized deja el puerto no autorizado e ignora todos los intentos.", 1],
+
+    ["En la configuración de AAA local del temario, ¿qué hace la secuencia aaa authentication login SSH-LOGIN local-case y, en line vty 0 4, login authentication SSH-LOGIN?",
+     "Las vty se autentican con la base de datos local distinguiendo mayúsculas, mientras el resto de líneas usa la lista default",
+     "Todas las líneas, incluidas la consola y AUX, pasan a usar la lista SSH-LOGIN",
+     "Las vty usan la contraseña de enable como único método de autenticación",
+     "La consola deja de requerir autenticación porque no tiene lista asignada",
+     "La lista con nombre SSH-LOGIN solo se aplica a las vty; consola y AUX usan la default (local-case enable).", 1],
+
+    ["¿Qué opción adicional admite la sintaxis de aaa accounting entre el trigger y los métodos?",
+     "broadcast",
+     "single-connection",
+     "local-case",
+     "auto",
+     "Sintaxis: aaa accounting {network | exec | connection} {default | lista} {start-stop | stop-only | none} [broadcast] método1…[método4]."]
   ]
 });
