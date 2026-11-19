@@ -24,6 +24,16 @@
   });
   const TEMA_TITLE = Object.fromEntries(TEMAS.map(t => [t.tema, t.titulo]));
 
+  // Comandos: [tema, categoría, comando, descripción, modo]
+  const CMDS = [];
+  {
+    const perTema = {};
+    (window.COMANDOS || []).forEach(c => {
+      perTema[c[0]] = (perTema[c[0]] || 0) + 1;
+      CMDS.push({ id: `c${c[0]}-${perTema[c[0]]}`, tema: c[0], cat: c[1], cmd: c[2], desc: c[3], modo: c[4] });
+    });
+  }
+
   // ---------- Almacenamiento ----------
   const store = {
     get(k, d) {
@@ -51,6 +61,33 @@
   // ---------- Utilidades ----------
   const $app = document.getElementById("app");
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // Escapa y convierte `texto` en <code>texto</code>
+  const fmt = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Genera una pregunta de comandos. dir: "what" (¿para qué sirve?) | "which" (¿qué comando?)
+  function cmdQuestion(c, dir) {
+    const field = dir === "what" ? "desc" : "cmd";
+    const pool = [
+      ...shuffle(CMDS.filter(x => x !== c && x.tema === c.tema && x.cat === c.cat)),
+      ...shuffle(CMDS.filter(x => x !== c && x.tema === c.tema && x.cat !== c.cat)),
+      ...shuffle(CMDS.filter(x => x.tema !== c.tema))
+    ];
+    const seen = new Set([c[field]]), wrong = [];
+    for (const x of pool) {
+      if (wrong.length === 3) break;
+      if (seen.has(x[field])) continue;
+      seen.add(x[field]); wrong.push(x[field]);
+    }
+    const wrap = v => (dir === "what" ? v : "`" + v + "`");
+    return {
+      id: `${c.id}-${dir}`,
+      tema: c.tema,
+      isCmd: true,
+      q: dir === "what" ? `¿Para qué sirve el comando \`${c.cmd}\`?` : `¿Qué comando sirve para lo siguiente? «${c.desc}»`,
+      opts: [c[field], ...wrong].map(wrap),
+      exp: `\`${c.cmd}\` (modo ${c.modo}): ${c.desc}.`
+    };
+  }
   function shuffle(a) {
     const r = a.slice();
     for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
@@ -69,6 +106,7 @@
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     flag: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></svg>',
     moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+    terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3M12 15h6"/></svg>',
     sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
   };
 
@@ -95,6 +133,16 @@
   let session = null;
   let timerId = null;
   let modal = null;
+  let cmdTab = "test";
+  let cmdOpts = Object.assign({ tema: 0, tipo: "mix", n: 20, failed: false }, store.get("cmdOpts", {}));
+  let sheetQuery = "", sheetTema = 0;
+  function readCmdForm() {
+    const t = document.getElementById("cmdtipo"), n = document.getElementById("cmdn"), f = document.getElementById("cmdfailed");
+    if (t) cmdOpts.tipo = t.value;
+    if (n) cmdOpts.n = Math.max(1, parseInt(n.value, 10) || 20);
+    if (f) cmdOpts.failed = f.checked && !f.disabled;
+    store.set("cmdOpts", cmdOpts);
+  }
 
   function makeSession(mode, title, questions) {
     return {
@@ -140,6 +188,22 @@
     } else if (mode === "retry") {
       qs = shuffle(opts.questions);
       title = "Repaso de los fallos";
+      if (qs.length && qs.every(q => q.isCmd)) { mode = "cmd"; title = "Repaso de comandos fallados"; }
+    } else if (mode === "cmd") {
+      // opts: { tema: 0 (todos) | n, tipo: "mix" | "what" | "which", n, failed }
+      const dirs = opts.tipo === "mix" ? ["what", "which"] : [opts.tipo];
+      let pool = [];
+      CMDS.filter(c => !opts.tema || c.tema === opts.tema).forEach(c => dirs.forEach(d => pool.push([c, d])));
+      if (opts.failed) pool = pool.filter(([c, d]) => stats[`${c.id}-${d}`] && stats[`${c.id}-${d}`].last === 0);
+      pool = shuffle(pool);
+      if (opts.tipo === "mix") {
+        // evita preguntar el mismo comando en las dos direcciones si sobra donde elegir
+        const used = new Set(), first = [], rest = [];
+        pool.forEach(p => (used.has(p[0].id) ? rest : (used.add(p[0].id), first)).push(p));
+        pool = first.concat(rest);
+      }
+      qs = pool.slice(0, Math.max(1, Math.min(opts.n, pool.length))).map(([c, d]) => cmdQuestion(c, d));
+      title = `Comandos · ${opts.tema ? "Tema " + opts.tema : "Todos los temas"}${opts.failed ? " (falladas)" : ""}`;
     } else if (mode === "exam") {
       qs = pickExam();
       title = "Simulacro de examen";
@@ -160,8 +224,8 @@
 
   function goHome() {
     stopTimer();
+    view = session && session.mode === "cmd" ? "cmds" : "home";
     session = null;
-    view = "home";
     render();
     window.scrollTo(0, 0);
   }
@@ -231,8 +295,10 @@
     else if (view === "quiz") html = renderQuiz();
     else if (view === "exam") html = renderExam();
     else if (view === "results") html = renderResults();
+    else if (view === "cmds") html = renderCmds();
     if (modal) html += renderModal();
     $app.innerHTML = html;
+    if (view === "cmds" && cmdTab === "sheet") renderSheet();
     if (view === "exam") tickTimer();
     if (modal) { const b = document.querySelector("[data-act=modal-ok]"); if (b) b.focus(); }
   }
@@ -326,6 +392,16 @@
           <div class="temas">${temaRows}</div>
         </section>
 
+        <section class="card mode span2 cmd-card">
+          <div class="mode-head"><span class="icon">${ICONS.terminal}</span>
+            <div><h2>Comandos</h2><p class="muted">Test de comandos Cisco IOS por tema o de todos, y chuleta con los ${CMDS.length} comandos del temario y para qué sirve cada uno.</p></div>
+          </div>
+          <div class="row">
+            <button class="btn primary" data-act="cmds" data-tab="test">Test de comandos</button>
+            <button class="btn" data-act="cmds" data-tab="sheet">Abrir chuleta</button>
+          </div>
+        </section>
+
         <section class="card mode">
           <div class="mode-head"><span class="icon">${ICONS.sliders}</span>
             <div><h2>Test personalizado</h2><p class="muted">Elige cuántas preguntas y de qué temas.</p></div>
@@ -381,6 +457,101 @@
       </footer>`;
   }
 
+  // ---------- Sección de comandos ----------
+  const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const cmdFailedIds = tema => CMDS.filter(c => !tema || c.tema === tema)
+    .flatMap(c => ["what", "which"].map(d => `${c.id}-${d}`))
+    .filter(id => stats[id] && stats[id].last === 0);
+
+  function renderCmds() {
+    const temas = [...new Set(CMDS.map(c => c.tema))].sort((a, b) => a - b);
+    const tabs = `
+      <div class="tabs" role="tablist" style="margin-top:0">
+        <button class="tab ${cmdTab === "test" ? "on" : ""}" data-act="cmdtab" data-tab="test" role="tab" aria-selected="${cmdTab === "test"}">Test de comandos</button>
+        <button class="tab ${cmdTab === "sheet" ? "on" : ""}" data-act="cmdtab" data-tab="sheet" role="tab" aria-selected="${cmdTab === "sheet"}">Chuleta</button>
+      </div>`;
+    const head = `
+      <header class="hero">
+        <button class="btn sm" data-act="gohome" style="flex:none">← Inicio</button>
+        <div class="spacer">
+          <h1>Comandos</h1>
+          <p class="muted">${CMDS.length} comandos Cisco IOS de los ${temas.length} temas</p>
+        </div>
+        ${themeBtn()}
+      </header>${tabs}`;
+
+    if (cmdTab === "sheet") {
+      return `${head}
+        <section class="card">
+          <div class="sheet-tools">
+            <input id="sheetq" type="search" placeholder="Buscar comando o función… (p. ej. ssh, port-security, bloquear)" value="${esc(sheetQuery)}" autocomplete="off">
+            <select id="sheettema" aria-label="Filtrar por tema">
+              <option value="0">Todos los temas</option>
+              ${temas.map(t => `<option value="${t}" ${sheetTema === t ? "selected" : ""}>Tema ${t}</option>`).join("")}
+            </select>
+          </div>
+          <div id="sheet"></div>
+        </section>`;
+    }
+
+    const o = cmdOpts;
+    const pool = CMDS.filter(c => !o.tema || c.tema === o.tema).length;
+    const failedN = cmdFailedIds(o.tema).length;
+    const chips = [0, ...temas].map(t => {
+      const n = t ? CMDS.filter(c => c.tema === t).length : CMDS.length;
+      const label = t ? `Tema ${t}` : "Todos";
+      return `<button class="tab ${o.tema === t ? "on" : ""}" data-act="cmdtema" data-t="${t}" title="${t ? esc(TEMA_TITLE[t]) : "Todos los temas"}">${label} · ${n}</button>`;
+    }).join("");
+    const answered = CMDS.flatMap(c => ["what", "which"].map(d => stats[`${c.id}-${d}`])).filter(Boolean);
+    const okN = answered.filter(s => s.last === 1).length;
+    return `${head}
+      <section class="card">
+        <div class="field">
+          <label>Tema</label>
+          <div class="row" style="gap:6px">${chips}</div>
+          <span class="muted small">${o.tema ? esc(TEMA_TITLE[o.tema]) : "Comandos de todos los temas mezclados"} · ${pool} comandos</span>
+        </div>
+        <div class="grid" style="gap:12px">
+          <div class="field">
+            <label for="cmdtipo">Tipo de pregunta</label>
+            <select id="cmdtipo">
+              <option value="mix" ${o.tipo === "mix" ? "selected" : ""}>Mezcla de los dos tipos</option>
+              <option value="what" ${o.tipo === "what" ? "selected" : ""}>¿Para qué sirve este comando?</option>
+              <option value="which" ${o.tipo === "which" ? "selected" : ""}>¿Qué comando hace esto?</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cmdn">Número de preguntas</label>
+            <input id="cmdn" type="number" min="1" max="${pool * 2}" value="${o.n}" inputmode="numeric">
+          </div>
+        </div>
+        <label class="check" style="margin-bottom:14px"><input type="checkbox" id="cmdfailed" ${o.failed ? "checked" : ""} ${failedN ? "" : "disabled"}> Solo los comandos que he fallado (${failedN})</label>
+        <button class="btn primary block" data-act="cmdstart">Empezar test de comandos</button>
+        <p class="muted small" style="margin:12px 0 0">Llevas ${answered.length} preguntas de comandos respondidas, ${okN} acertadas la última vez. Al comprobar cada respuesta verás el modo de configuración y para qué sirve el comando.</p>
+      </section>`;
+  }
+
+  function renderSheet() {
+    const box = document.getElementById("sheet");
+    if (!box) return;
+    const q = norm(sheetQuery.trim());
+    const list = CMDS.filter(c => (!sheetTema || c.tema === sheetTema) &&
+      (!q || norm(`${c.cmd} ${c.desc} ${c.cat} ${c.modo}`).includes(q)));
+    if (!list.length) { box.innerHTML = `<p class="muted empty">No hay comandos que coincidan con la búsqueda.</p>`; return; }
+    let html = "", lastTema = null, lastCat = null;
+    list.forEach(c => {
+      if (c.tema !== lastTema) {
+        if (lastTema !== null) html += `</div>`;
+        html += `<h2 class="sheet-tema">Tema ${c.tema} · ${esc(TEMA_TITLE[c.tema] || "")}</h2><div class="sheet-group">`;
+        lastTema = c.tema; lastCat = null;
+      }
+      if (c.cat !== lastCat) { html += `<h3 class="sheet-cat">${esc(c.cat)}</h3>`; lastCat = c.cat; }
+      html += `<div class="sheet-row"><code class="sheet-cmd">${esc(c.cmd)}</code><div class="sheet-desc">${esc(c.desc)}<span class="chip neutral">${esc(c.modo)}</span></div></div>`;
+    });
+    html += `</div><p class="muted small" style="margin-top:12px">${list.length} comando${list.length === 1 ? "" : "s"}</p>`;
+    box.innerHTML = html;
+  }
+
   function optionsHTML(it, mode) {
     // mode: "quiz" | "exam" | "review"
     return it.order.map((oi, pos) => {
@@ -394,7 +565,7 @@
       } else if (isSel) cls += " selected";
       const disabled = (mode === "quiz" && it.checked) || mode === "review";
       return `<button class="${cls}" data-act="pick" data-pos="${pos}" ${disabled ? "disabled" : ""} role="radio" aria-checked="${isSel}">
-          <span class="letter">${LETTERS[pos]}</span><span>${esc(it.q.opts[oi])}</span>${tag ? `<span class="tag">${tag}</span>` : ""}
+          <span class="letter">${LETTERS[pos]}</span><span>${fmt(it.q.opts[oi])}</span>${tag ? `<span class="tag">${tag}</span>` : ""}
         </button>`;
     }).join("");
   }
@@ -412,8 +583,8 @@
       feedback = `
         <div class="feedback ${good ? "ok" : "ko"}">
           <h3>${good ? "¡Correcto!" : "Incorrecto"}</h3>
-          ${good ? "" : `<p>La respuesta correcta es la <b>${LETTERS[correctPos]}</b>: ${esc(it.q.opts[0])}</p>`}
-          <div class="explain"><b>Explicación</b>${esc(it.q.exp)}</div>
+          ${good ? "" : `<p>La respuesta correcta es la <b>${LETTERS[correctPos]}</b>: ${fmt(it.q.opts[0])}</p>`}
+          <div class="explain"><b>Explicación</b>${fmt(it.q.exp)}</div>
         </div>`;
     }
     let primary;
@@ -433,7 +604,7 @@
           <span class="row" style="gap:6px"><span class="chip">Tema ${it.q.tema} · ${esc(TEMA_TITLE[it.q.tema])}</span>${it.q.hard ? `<span class="chip warn">Difícil</span>` : ""}</span>
           ${s.mode === "tema" ? "" : `<span class="muted small">${esc(s.title)}</span>`}
         </div>
-        <h2 class="question">${esc(it.q.q)}</h2>
+        <h2 class="question">${fmt(it.q.q)}</h2>
         <div class="options" role="radiogroup">${optionsHTML(it, "quiz")}</div>
         ${feedback}
         <div class="actions">
@@ -463,7 +634,7 @@
           <span class="chip neutral">Pregunta ${s.idx + 1} de ${n}</span>
           <button class="btn sm flag ${it.flag ? "on" : ""}" data-act="flag" aria-pressed="${it.flag}">${ICONS.flag} ${it.flag ? "Marcada" : "Marcar para revisar"}</button>
         </div>
-        <h2 class="question">${esc(it.q.q)}</h2>
+        <h2 class="question">${fmt(it.q.q)}</h2>
         <div class="options" role="radiogroup">${optionsHTML(it, "exam")}</div>
         <div class="actions">
           <button class="btn" data-act="prev" ${s.idx === 0 ? "disabled" : ""}>← Anterior</button>
@@ -524,11 +695,11 @@
             <span class="spacer"></span>
             ${!answeredNow ? `<span class="chip neutral">En blanco</span>` : good ? `<span class="chip ok">Correcta</span>` : `<span class="chip ko">Fallada</span>`}
           </div>
-          <div class="rq">${esc(it.q.q)}</div>
-          ${answeredNow && !good ? `<div class="ans ko"><span class="mark">✗</span><span>Tu respuesta: ${esc(yours)}</span></div>` : ""}
+          <div class="rq">${fmt(it.q.q)}</div>
+          ${answeredNow && !good ? `<div class="ans ko"><span class="mark">✗</span><span>Tu respuesta: ${fmt(yours)}</span></div>` : ""}
           ${!answeredNow ? `<div class="ans blank"><span class="mark">○</span><span>Sin responder</span></div>` : ""}
-          <div class="ans ok"><span class="mark">✓</span><span>${esc(it.q.opts[0])}</span></div>
-          <div class="explain"><b>Explicación</b>${esc(it.q.exp)}</div>
+          <div class="ans ok"><span class="mark">✓</span><span>${fmt(it.q.opts[0])}</span></div>
+          <div class="explain"><b>Explicación</b>${fmt(it.q.exp)}</div>
         </article>`;
     }).join("");
 
@@ -538,7 +709,7 @@
         <div class="result-actions">
           ${wrongQs.length ? `<button class="btn primary" data-act="retry">${wrongQs.length === 1 ? "Repetir el fallo" : `Repetir los ${wrongQs.length} fallos`}</button>` : ""}
           ${isExam ? `<button class="btn ${wrongQs.length ? "" : "primary"}" data-act="exam">Nuevo simulacro</button>` : ""}
-          <button class="btn" data-act="home">Volver al inicio</button>
+          <button class="btn" data-act="home">${s.mode === "cmd" ? "Volver a comandos" : "Volver al inicio"}</button>
         </div>
       </section>
       <div class="tabs" role="tablist">
@@ -616,6 +787,11 @@
         break;
       }
       case "home": goHome(); break;
+      case "gohome": view = "home"; render(); window.scrollTo(0, 0); break;
+      case "cmds": cmdTab = el.dataset.tab || "test"; view = "cmds"; render(); window.scrollTo(0, 0); break;
+      case "cmdtab": if (cmdTab === "test") readCmdForm(); cmdTab = el.dataset.tab; render(); break;
+      case "cmdtema": readCmdForm(); cmdOpts.tema = +el.dataset.t; cmdOpts.failed = false; store.set("cmdOpts", cmdOpts); render(); break;
+      case "cmdstart": readCmdForm(); start("cmd", cmdOpts); break;
       case "pick": pick(+el.dataset.pos); break;
       case "check": check(); break;
       case "next": move(1); break;
@@ -660,6 +836,11 @@
     const el = e.target;
     if (el.dataset.act === "penalty") { settings.penalty = parseFloat(el.value); store.set("settings", settings); }
     if (el.dataset.act === "allorder") { settings.allOrder = el.value; store.set("settings", settings); }
+    if (el.id === "sheettema") { sheetTema = +el.value; renderSheet(); }
+  });
+
+  $app.addEventListener("input", e => {
+    if (e.target.id === "sheetq") { sheetQuery = e.target.value; renderSheet(); }
   });
 
   document.addEventListener("keydown", e => {

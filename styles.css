@@ -283,6 +283,33 @@ kbd { font: 600 .75rem ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .theme-toggle { width: 38px; height: 38px; padding: 0; border-radius: 10px; flex: none; }
 .theme-toggle svg { width: 18px; height: 18px; }
 
+/* ---------- Comandos ---------- */
+code {
+  font: 600 .9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 6px; word-break: break-word;
+}
+.opt code, .ans code { background: transparent; border: 0; padding: 0; }
+.cmd-card { border-color: var(--ok); }
+.cmd-card .icon { background: var(--ok-soft); color: var(--ok); }
+.sheet-tools { display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.sheet-tools input, .sheet-tools select {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 9px 12px;
+}
+.sheet-tools input { flex: 1; min-width: 200px; }
+.sheet-tema { font-size: 1.05rem; margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+.sheet-cat { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+.sheet-row {
+  display: grid; grid-template-columns: minmax(220px, 42%) 1fr; gap: 14px; align-items: start;
+  padding: 9px 0; border-bottom: 1px dashed var(--border);
+}
+.sheet-cmd { justify-self: start; }
+.sheet-desc { font-size: .92rem; line-height: 1.45; }
+.sheet-desc .chip { margin-left: 8px; font-size: .7rem; padding: 1px 8px; vertical-align: 1px; }
+@media (max-width: 720px) {
+  .sheet-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
 /* ---------- Modal ---------- */
 .modal-back {
   position: fixed; inset: 0; background: rgba(10, 12, 20, .5); display: grid; place-items: center; z-index: 50; padding: 16px;
