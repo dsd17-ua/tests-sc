@@ -106,6 +106,8 @@
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     flag: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></svg>',
     moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
     terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3M12 15h6"/></svg>',
     sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
   };
@@ -144,6 +146,54 @@
     store.set("cmdOpts", cmdOpts);
   }
 
+  // ---------- Test a medias (reanudar) ----------
+  const BY_ID = Object.fromEntries(ALL.map(q => [q.id, q]));
+  function saveProgress() {
+    if (!session || view !== "quiz") return;
+    const s = session;
+    if (!s.items.some(it => it.checked) && s.idx === 0) { store.del("resume"); return; }
+    store.set("resume", {
+      mode: s.mode, title: s.title, idx: s.idx, started: s.started, saved: Date.now(),
+      items: s.items.map(it => ({
+        id: it.q.isCmd ? null : it.q.id,
+        q: it.q.isCmd ? it.q : undefined,
+        order: it.order, sel: it.checked ? it.sel : null, checked: it.checked
+      }))
+    });
+  }
+  function getResume() {
+    const r = store.get("resume", null);
+    if (!r || !Array.isArray(r.items)) return null;
+    const items = r.items.map(x => ({ q: x.q || BY_ID[x.id], order: x.order, sel: x.sel, checked: x.checked, flag: false }))
+      .filter(it => it.q && Array.isArray(it.order) && it.order.length === 4);
+    if (!items.length) return null;
+    const done = items.filter(it => it.checked);
+    return {
+      mode: r.mode, title: r.title, started: r.started, saved: r.saved, ended: null,
+      idx: Math.min(r.idx || 0, items.length - 1), items,
+      ok: done.filter(it => it.order[it.sel] === 0).length, ko: done.filter(it => it.order[it.sel] !== 0).length,
+      done: done.length
+    };
+  }
+  function resumeBanner() {
+    const r = getResume();
+    if (!r) return "";
+    return `
+      <section class="card resume-card">
+        <div class="mode-head" style="margin:0">
+          <span class="icon">${ICONS.redo}</span>
+          <div class="spacer">
+            <h2 style="margin:0 0 2px;font-size:1.05rem">Tienes un test a medias</h2>
+            <p class="muted small" style="margin:0">${esc(r.title)} · vas por la pregunta <b>${r.idx + 1}</b> de ${r.items.length} · <span style="color:var(--ok)">✓ ${r.ok}</span> <span style="color:var(--ko)">✗ ${r.ko}</span></p>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" data-act="resume">Continuar donde lo dejé</button>
+          <button class="btn sm ghost" data-act="discard">Descartar</button>
+        </div>
+      </section>`;
+  }
+
   function makeSession(mode, title, questions) {
     return {
       mode, title,
@@ -171,10 +221,20 @@
 
   // ---------- Acciones ----------
   function start(mode, opts = {}) {
+    // Si hay un test a medias, avisar antes de sustituirlo (el simulacro no lo toca)
+    if (mode !== "exam" && !opts._confirmed && getResume()) {
+      const r = getResume();
+      confirmBox("¿Empezar un test nuevo?",
+        `Tienes a medias «${r.title}» (pregunta ${r.idx + 1} de ${r.items.length}). Si empiezas otro, ese progreso de test se descartará; tus estadísticas y falladas se mantienen.`,
+        "Empezar nuevo", () => { store.del("resume"); start(mode, { ...opts, _confirmed: true }); });
+      return;
+    }
     let qs = [], title = "";
     if (mode === "tema") {
-      qs = shuffle(ALL.filter(q => q.tema === opts.tema));
-      title = `Tema ${opts.tema} · ${TEMA_TITLE[opts.tema]}`;
+      const pool = ALL.filter(q => q.tema === opts.tema && (!opts.unseen || !stats[q.id]));
+      if (!pool.length) { confirmBox("No quedan preguntas sin ver", `Ya te han salido todas las preguntas del tema ${opts.tema}. Desmarca «Solo preguntas que nunca me han salido» para repasarlo entero.`, "Entendido", () => { }); return; }
+      qs = shuffle(pool);
+      title = `Tema ${opts.tema} · ${TEMA_TITLE[opts.tema]}${opts.unseen ? " (no vistas)" : ""}`;
     } else if (mode === "failed") {
       qs = shuffle(ALL.filter(q => isFailed(q) && (!opts.tema || q.tema === opts.tema)));
       title = opts.tema ? `Falladas · Tema ${opts.tema}` : "Preguntas falladas";
@@ -182,9 +242,11 @@
       qs = settings.allOrder === "tema" ? ALL.slice() : shuffle(ALL);
       title = "Todas las preguntas";
     } else if (mode === "custom") {
-      const pool = ALL.filter(q => opts.temas.includes(q.tema) && (!opts.hard || q.hard));
+      const pool = ALL.filter(q => opts.temas.includes(q.tema) && (!opts.hard || q.hard) && (!opts.unseen || !stats[q.id]));
+      if (!pool.length) { confirmBox("No hay preguntas", "Ninguna pregunta cumple los filtros elegidos (quizá ya te han salido todas). Prueba a quitar algún filtro.", "Entendido", () => { }); return; }
       qs = shuffle(pool).slice(0, Math.max(1, Math.min(opts.n, pool.length)));
-      title = `Test personalizado${opts.hard ? " (difíciles)" : ""} · ${qs.length} preguntas`;
+      const tags = [opts.hard && "difíciles", opts.unseen && "no vistas"].filter(Boolean).join(", ");
+      title = `Test personalizado${tags ? ` (${tags})` : ""} · ${qs.length} preguntas`;
     } else if (mode === "retry") {
       qs = shuffle(opts.questions);
       title = "Repaso de los fallos";
@@ -224,14 +286,15 @@
 
   function goHome() {
     stopTimer();
+    if (view === "quiz") saveProgress();
     view = session && session.mode === "cmd" ? "cmds" : "home";
     session = null;
     render();
     window.scrollTo(0, 0);
   }
 
-  function confirmBox(title, text, okLabel, onOk, danger) {
-    modal = { title, text, okLabel, onOk, danger };
+  function confirmBox(title, text, okLabel, onOk, danger, alt) {
+    modal = { title, text, okLabel, onOk, danger, alt };
     render();
   }
 
@@ -281,6 +344,7 @@
   }
 
   function finishQuiz() {
+    store.del("resume");
     session.ended = Date.now();
     session.filter = "all";
     view = "results";
@@ -298,6 +362,7 @@
     else if (view === "cmds") html = renderCmds();
     if (modal) html += renderModal();
     $app.innerHTML = html;
+    if (view === "quiz") saveProgress();
     if (view === "cmds" && cmdTab === "sheet") renderSheet();
     if (view === "exam") tickTimer();
     if (modal) { const b = document.querySelector("[data-act=modal-ok]"); if (b) b.focus(); }
@@ -318,12 +383,14 @@
     const temaRows = TEMAS.map(t => {
       const qs = ALL.filter(q => q.tema === t.tema);
       const m = qs.filter(isMastered).length, f = qs.filter(isFailed).length;
+      const unseen = qs.filter(q => !stats[q.id]).length;
+      const dis = settings.unseenOnly && !unseen;
       return `
-        <button class="tema-row" data-act="tema" data-tema="${t.tema}">
+        <button class="tema-row" data-act="tema" data-tema="${t.tema}" ${dis ? "disabled" : ""}>
           <span class="tema-num">${t.tema}</span>
           <span>
             <span class="tema-title">${esc(t.titulo)}</span>
-            <span class="tema-sub">${qs.length} preguntas · ${m} acertadas · ${f} falladas</span>
+            <span class="tema-sub">${qs.length} preguntas · ${m} acertadas · ${f} falladas · <b>${unseen} sin ver</b></span>
             <span class="meter" aria-hidden="true"><i class="m-ok" style="width:${pct(m, qs.length)}%"></i><i class="m-ko" style="width:${pct(f, qs.length)}%"></i></span>
           </span>
           <span class="muted" aria-hidden="true">›</span>
@@ -353,6 +420,8 @@
         </div>
         ${themeBtn()}
       </header>
+
+      ${resumeBanner()}
 
       <section class="stats" aria-label="Tu progreso">
         <div class="stat"><b>${answered}/${total}</b><span>Preguntas vistas</span></div>
@@ -389,6 +458,7 @@
           <div class="mode-head"><span class="icon">${ICONS.book}</span>
             <div><h2>Test por tema</h2><p class="muted">Todas las preguntas de un tema en orden aleatorio, con corrección y explicación al momento.</p></div>
           </div>
+          <label class="check" style="margin-bottom:10px"><input type="checkbox" id="unseenOnly" data-act="unseenOnly" ${settings.unseenOnly ? "checked" : ""}> Solo preguntas que nunca me han salido</label>
           <div class="temas">${temaRows}</div>
         </section>
 
@@ -416,6 +486,7 @@
           </div>
           <div class="field">
             <label class="check"><input type="checkbox" id="chard" ${store.get("customHard", false) ? "checked" : ""}> Solo preguntas difíciles (${ALL.filter(q => q.hard).length})</label>
+            <label class="check"><input type="checkbox" id="cunseen" ${store.get("customUnseen", false) ? "checked" : ""}> Solo preguntas que nunca me han salido (${ALL.filter(q => !stats[q.id]).length})</label>
           </div>
           <button class="btn primary block" data-act="custom">Generar test</button>
         </section>
@@ -478,7 +549,7 @@
           <p class="muted">${CMDS.length} comandos Cisco IOS de los ${temas.length} temas</p>
         </div>
         ${themeBtn()}
-      </header>${tabs}`;
+      </header>${resumeBanner()}${tabs}`;
 
     if (cmdTab === "sheet") {
       return `${head}
@@ -552,6 +623,44 @@
     box.innerHTML = html;
   }
 
+  // ---------- Copiar pregunta ----------
+  function copyBtn(i) {
+    return `<button class="copy-btn" data-act="copy" data-i="${i}" title="Copiar pregunta y respuestas" aria-label="Copiar pregunta y respuestas">${ICONS.copy}</button>`;
+  }
+  // Texto plano de una pregunta. La respuesta correcta solo se incluye si ya se ha corregido
+  // (en el simulacro, hasta entregar, se copian solo el enunciado y las opciones).
+  function questionText(it, withAnswer) {
+    const plain = s => String(s).replace(/`/g, "");
+    const lines = [`Tema ${it.q.tema} · ${TEMA_TITLE[it.q.tema] || ""}`, "", plain(it.q.q), ""];
+    it.order.forEach((oi, pos) => lines.push(`${LETTERS[pos]}) ${plain(it.q.opts[oi])}`));
+    if (withAnswer) {
+      const cp = it.order.indexOf(0);
+      lines.push("", `Respuesta correcta: ${LETTERS[cp]}) ${plain(it.q.opts[0])}`);
+      if (it.sel !== null && it.sel !== undefined && it.checked && it.sel !== cp) lines.push(`Tu respuesta: ${LETTERS[it.sel]}) ${plain(it.q.opts[it.order[it.sel]])}`);
+      lines.push("", `Explicación: ${plain(it.q.exp)}`);
+    }
+    return lines.join("\n");
+  }
+  async function copyToClipboard(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* usa el método alternativo */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+  function toast(msg) {
+    let t = document.getElementById("toast");
+    if (!t) { t = document.createElement("div"); t.id = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+
   function optionsHTML(it, mode) {
     // mode: "quiz" | "exam" | "review"
     return it.order.map((oi, pos) => {
@@ -602,7 +711,7 @@
       <article class="card">
         <div class="meta">
           <span class="row" style="gap:6px"><span class="chip">Tema ${it.q.tema} · ${esc(TEMA_TITLE[it.q.tema])}</span>${it.q.hard ? `<span class="chip warn">Difícil</span>` : ""}</span>
-          ${s.mode === "tema" ? "" : `<span class="muted small">${esc(s.title)}</span>`}
+          <span class="row" style="gap:8px">${s.mode === "tema" ? "" : `<span class="muted small">${esc(s.title)}</span>`}${copyBtn(s.idx)}</span>
         </div>
         <h2 class="question">${fmt(it.q.q)}</h2>
         <div class="options" role="radiogroup">${optionsHTML(it, "quiz")}</div>
@@ -632,7 +741,10 @@
       <article class="card">
         <div class="meta">
           <span class="chip neutral">Pregunta ${s.idx + 1} de ${n}</span>
-          <button class="btn sm flag ${it.flag ? "on" : ""}" data-act="flag" aria-pressed="${it.flag}">${ICONS.flag} ${it.flag ? "Marcada" : "Marcar para revisar"}</button>
+          <span class="row" style="gap:8px">
+            <button class="btn sm flag ${it.flag ? "on" : ""}" data-act="flag" aria-pressed="${it.flag}">${ICONS.flag} ${it.flag ? "Marcada" : "Marcar para revisar"}</button>
+            ${copyBtn(s.idx)}
+          </span>
         </div>
         <h2 class="question">${fmt(it.q.q)}</h2>
         <div class="options" role="radiogroup">${optionsHTML(it, "exam")}</div>
@@ -694,6 +806,7 @@
             ${it.q.hard ? `<span class="chip warn">Difícil</span>` : ""}
             <span class="spacer"></span>
             ${!answeredNow ? `<span class="chip neutral">En blanco</span>` : good ? `<span class="chip ok">Correcta</span>` : `<span class="chip ko">Fallada</span>`}
+            ${copyBtn(i)}
           </div>
           <div class="rq">${fmt(it.q.q)}</div>
           ${answeredNow && !good ? `<div class="ans ko"><span class="mark">✗</span><span>Tu respuesta: ${fmt(yours)}</span></div>` : ""}
@@ -726,6 +839,7 @@
           <p class="muted">${esc(modal.text)}</p>
           <div class="row" style="justify-content:flex-end">
             <button class="btn" data-act="modal-cancel">Cancelar</button>
+            ${modal.alt ? `<button class="btn" data-act="modal-alt">${esc(modal.alt.label)}</button>` : ""}
             <button class="btn ${modal.danger ? "danger" : "primary"}" data-act="modal-ok">${esc(modal.okLabel)}</button>
           </div>
         </div>
@@ -766,7 +880,19 @@
     const act = el.dataset.act;
     switch (act) {
       case "theme": toggleTheme(); break;
-      case "tema": start("tema", { tema: +el.dataset.tema }); break;
+      case "tema": start("tema", { tema: +el.dataset.tema, unseen: !!settings.unseenOnly }); break;
+      case "resume": {
+        const r = getResume();
+        if (!r) { render(); break; }
+        session = r;
+        view = "quiz";
+        render();
+        window.scrollTo(0, 0);
+        break;
+      }
+      case "discard":
+        confirmBox("¿Descartar el test a medias?", "Se perderá la posición dentro de ese test. Tus estadísticas y preguntas falladas se mantienen.", "Descartar", () => { store.del("resume"); render(); }, true);
+        break;
       case "failed": start("failed", { tema: el.dataset.tema ? +el.dataset.tema : null }); break;
       case "all": start("all"); break;
       case "exam": start("exam"); break;
@@ -776,9 +902,11 @@
         if (!temas.length) { confirmBox("Elige algún tema", "Marca al menos un tema para generar el test.", "Entendido", () => { }); break; }
         if (n < 1) { confirmBox("Número no válido", "Indica cuántas preguntas quieres (mínimo 1).", "Entendido", () => { }); break; }
         const hard = document.getElementById("chard").checked;
+        const unseen = document.getElementById("cunseen").checked;
         store.set("customN", n);
         store.set("customHard", hard);
-        start("custom", { n, temas, hard });
+        store.set("customUnseen", unseen);
+        start("custom", { n, temas, hard, unseen });
         break;
       }
       case "retry": {
@@ -792,6 +920,19 @@
       case "cmdtab": if (cmdTab === "test") readCmdForm(); cmdTab = el.dataset.tab; render(); break;
       case "cmdtema": readCmdForm(); cmdOpts.tema = +el.dataset.t; cmdOpts.failed = false; store.set("cmdOpts", cmdOpts); render(); break;
       case "cmdstart": readCmdForm(); start("cmd", cmdOpts); break;
+      case "copy": {
+        const it = session && session.items[+el.dataset.i];
+        if (!it) break;
+        const withAnswer = view === "results" || (view === "quiz" && it.checked);
+        copyToClipboard(questionText(it, withAnswer)).then(ok => {
+          if (ok) {
+            el.innerHTML = ICONS.check; el.classList.add("done");
+            setTimeout(() => { el.innerHTML = ICONS.copy; el.classList.remove("done"); }, 1500);
+          }
+          toast(ok ? (withAnswer ? "Pregunta, respuestas y explicación copiadas" : "Pregunta y opciones copiadas") : "No se pudo copiar");
+        });
+        break;
+      }
       case "pick": pick(+el.dataset.pos); break;
       case "check": check(); break;
       case "next": move(1); break;
@@ -815,8 +956,10 @@
         if (view === "exam") confirmBox("¿Abandonar el simulacro?", "Se perderá este intento y no contará en el historial.", "Abandonar", goHome, true);
         else {
           const done = session.items.filter(x => x.checked).length;
-          if (done) confirmBox("¿Salir del test?", "Las respuestas ya comprobadas quedan guardadas en tus estadísticas.", "Ver resultados", finishQuiz);
-          else goHome();
+          if (done) confirmBox("¿Salir del test?",
+            "Tu progreso queda guardado: podrás continuar por esta misma pregunta desde la portada. También puedes terminar ahora y ver los resultados.",
+            "Salir y continuar luego", goHome, false, { label: "Terminar y ver resultados", fn: finishQuiz });
+          else { store.del("resume"); goHome(); }
         }
         break;
       }
@@ -828,6 +971,7 @@
         }, true);
         break;
       case "modal-ok": { const f = modal.onOk; modal = null; f(); if (modal === null && view !== "results") render(); break; }
+      case "modal-alt": { const f = modal.alt.fn; modal = null; f(); break; }
       case "modal-cancel": modal = null; render(); break;
     }
   });
@@ -836,6 +980,7 @@
     const el = e.target;
     if (el.dataset.act === "penalty") { settings.penalty = parseFloat(el.value); store.set("settings", settings); }
     if (el.dataset.act === "allorder") { settings.allOrder = el.value; store.set("settings", settings); }
+    if (el.dataset.act === "unseenOnly") { settings.unseenOnly = el.checked; store.set("settings", settings); render(); }
     if (el.id === "sheettema") { sheetTema = +el.value; renderSheet(); }
   });
 
