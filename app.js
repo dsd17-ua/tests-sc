@@ -108,6 +108,7 @@
     moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    abc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l3.5-10L10 17M4.2 13.5h4.6M13 7h3.5a2.5 2.5 0 0 1 0 5H13zM13 12h4a2.5 2.5 0 0 1 0 5h-4z"/></svg>',
     terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3M12 15h6"/></svg>',
     sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
   };
@@ -360,10 +361,12 @@
     else if (view === "exam") html = renderExam();
     else if (view === "results") html = renderResults();
     else if (view === "cmds") html = renderCmds();
+    else if (view === "siglas") html = renderSiglas();
     if (modal) html += renderModal();
     $app.innerHTML = html;
     if (view === "quiz") saveProgress();
     if (view === "cmds" && cmdTab === "sheet") renderSheet();
+    if (view === "siglas") renderSigList();
     if (view === "exam") tickTimer();
     if (modal) { const b = document.querySelector("[data-act=modal-ok]"); if (b) b.focus(); }
   }
@@ -434,7 +437,7 @@
         <section class="card mode exam-card span2">
           <div class="mode-head"><span class="icon">${ICONS.exam}</span>
             <div><h2>Simulacro de examen</h2>
-            <p class="muted">Como en Moodle: no verás si aciertas hasta entregar. Puedes moverte entre preguntas, cambiar respuestas y marcarlas para revisar.</p></div>
+            <p class="muted">Como en el examen: no verás si aciertas hasta entregar y las preguntas van en orden, <b>sin poder volver atrás</b>. Puedes cambiar tu respuesta mientras sigas en la pregunta.</p></div>
           </div>
           <div class="exam-facts">
             <span class="chip">${EXAM_N} preguntas</span>
@@ -470,6 +473,13 @@
             <button class="btn primary" data-act="cmds" data-tab="test">Test de comandos</button>
             <button class="btn" data-act="cmds" data-tab="sheet">Abrir chuleta</button>
           </div>
+        </section>
+
+        <section class="card mode span2 sig-card">
+          <div class="mode-head"><span class="icon">${ICONS.abc}</span>
+            <div><h2>Siglas</h2><p class="muted">Las ${SIGLAS.length} siglas que aparecen en los temas, con su significado. Sin preguntas: solo consulta, con buscador.</p></div>
+          </div>
+          <button class="btn primary" data-act="siglas">Ver siglas</button>
         </section>
 
         <section class="card mode">
@@ -526,6 +536,63 @@
         <span class="muted small">El progreso se guarda solo en este navegador.</span>
         <button class="btn sm danger" data-act="reset">Borrar progreso</button>
       </footer>`;
+  }
+
+  // ---------- Sección de siglas ----------
+  const SIGLAS = (window.SIGLAS || []).map(x => ({ abbr: x[0], full: x[1], desc: x[2], temas: x[3] || [] }))
+    .sort((a, b) => a.abbr.localeCompare(b.abbr, "es", { sensitivity: "base", numeric: true }));
+  let sigQuery = "", sigTema = 0;
+  const sigLetter = a => { const c = norm(a.abbr)[0].toUpperCase(); return /[A-Z]/.test(c) ? c : "#"; };
+
+  function renderSiglas() {
+    const temas = TEMAS.map(t => t.tema);
+    return `
+      <header class="hero">
+        <button class="btn sm" data-act="gohome" style="flex:none">← Inicio</button>
+        <div class="spacer">
+          <h1>Siglas</h1>
+          <p class="muted">${SIGLAS.length} siglas de los ${temas.length} temas</p>
+        </div>
+        ${themeBtn()}
+      </header>
+      <section class="card">
+        <div class="sheet-tools">
+          <input id="sigq" type="search" placeholder="Buscar sigla o significado… (p. ej. ESP, firewall, clave)" value="${esc(sigQuery)}" autocomplete="off">
+          <select id="sigtema" aria-label="Filtrar por tema">
+            <option value="0">Todos los temas</option>
+            ${temas.map(t => `<option value="${t}" ${sigTema === t ? "selected" : ""}>Tema ${t}</option>`).join("")}
+          </select>
+        </div>
+        <div id="siglist"></div>
+      </section>`;
+  }
+
+  function renderSigList() {
+    const box = document.getElementById("siglist");
+    if (!box) return;
+    const q = norm(sigQuery.trim());
+    let list = SIGLAS.filter(x => (!sigTema || x.temas.includes(sigTema)) &&
+      (!q || norm(`${x.abbr} ${x.full} ${x.desc}`).includes(q)));
+    if (!list.length) { box.innerHTML = `<p class="muted empty">No hay siglas que coincidan con la búsqueda.</p>`; return; }
+    // Al buscar, primero las siglas que coinciden (exacta, empieza por, contiene) y luego el resto
+    if (q) {
+      const score = x => { const a = norm(x.abbr); return a === q ? 0 : a.startsWith(q) ? 1 : a.includes(q) ? 2 : norm(x.full).includes(q) ? 3 : 4; };
+      list = list.map((x, i) => [score(x), i, x]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(e => e[2]);
+    }
+    const letters = q ? [] : [...new Set(list.map(sigLetter))];
+    let html = letters.length ? `<div class="letters">${letters.map(l => `<a href="#" data-act="sigjump" data-l="${l}">${l}</a>`).join("")}</div>` : "";
+    let last = null;
+    list.forEach(x => {
+      const l = sigLetter(x);
+      if (!q && l !== last) { html += `<h2 class="sig-letter" id="sig-${l}">${l}</h2>`; last = l; }
+      html += `<div class="sig-row">
+        <div class="sig-abbr">${esc(x.abbr)}</div>
+        <div><div class="sig-full">${esc(x.full)}</div><div class="sig-desc">${esc(x.desc)}</div>
+          <div class="sig-temas">${x.temas.map(t => `<span class="chip neutral" title="${esc(TEMA_TITLE[t] || "")}">Tema ${t}</span>`).join("")}</div></div>
+      </div>`;
+    });
+    html += `<p class="muted small" style="margin-top:12px">${list.length} sigla${list.length === 1 ? "" : "s"}</p>`;
+    box.innerHTML = html;
   }
 
   // ---------- Sección de comandos ----------
@@ -729,7 +796,9 @@
   function renderExam() {
     const s = session, it = s.items[s.idx], n = s.items.length;
     const answered = s.items.filter(x => x.sel !== null).length;
-    const nav = s.items.map((x, i) => `<button class="navbtn ${x.sel !== null ? "answered" : ""} ${x.flag ? "flagged" : ""} ${i === s.idx ? "current" : ""}" data-act="goto" data-i="${i}" aria-label="Pregunta ${i + 1}${x.sel !== null ? ", respondida" : ""}${x.flag ? ", marcada" : ""}">${i + 1}</button>`).join("");
+    const isLast = s.idx === n - 1;
+    // Navegación secuencial (como en el examen real): no se puede volver a preguntas anteriores
+    const steps = s.items.map((x, i) => `<i class="${i < s.idx ? (x.sel !== null ? "s-done" : "s-blank") : i === s.idx ? "s-now" : ""}"></i>`).join("");
     return `
       <div class="qbar">
         <button class="btn sm" data-act="quit">✕</button>
@@ -741,20 +810,17 @@
       <article class="card">
         <div class="meta">
           <span class="chip neutral">Pregunta ${s.idx + 1} de ${n}</span>
-          <span class="row" style="gap:8px">
-            <button class="btn sm flag ${it.flag ? "on" : ""}" data-act="flag" aria-pressed="${it.flag}">${ICONS.flag} ${it.flag ? "Marcada" : "Marcar para revisar"}</button>
-            ${copyBtn(s.idx)}
-          </span>
+          ${copyBtn(s.idx)}
         </div>
+        <div class="steps" aria-hidden="true">${steps}</div>
         <h2 class="question">${fmt(it.q.q)}</h2>
         <div class="options" role="radiogroup">${optionsHTML(it, "exam")}</div>
         <div class="actions">
-          <button class="btn" data-act="prev" ${s.idx === 0 ? "disabled" : ""}>← Anterior</button>
           ${it.sel !== null ? `<button class="btn ghost sm" data-act="clear">Quitar mi elección</button>` : ""}
           <span class="spacer"></span>
-          ${s.idx < n - 1 ? `<button class="btn primary" data-act="next">Siguiente →</button>` : `<button class="btn primary" data-act="submit">Terminar y entregar</button>`}
+          <span class="kbd-hint">No podrás volver a esta pregunta</span>
+          ${isLast ? `<button class="btn primary" data-act="submit">Terminar y entregar</button>` : `<button class="btn primary" data-act="examnext">Siguiente →</button>`}
         </div>
-        <div class="navgrid" aria-label="Navegación del examen">${nav}</div>
       </article>`;
   }
 
@@ -865,12 +931,23 @@
     render();
   }
   function move(d) {
+    if (view === "exam" && d < 0) return;
     const n = session.items.length;
     const i = session.idx + d;
     if (i < 0 || i >= n) return;
     session.idx = i;
     render();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function examNext() {
+    const it = session.items[session.idx];
+    if (session.idx >= session.items.length - 1) return;
+    if (it.sel === null) {
+      confirmBox("¿Dejar la pregunta en blanco?", "No has elegido ninguna respuesta. Si continúas, quedará en blanco y no podrás volver a ella.", "Dejar en blanco y seguir", () => move(1));
+      return;
+    }
+    move(1);
   }
 
   $app.addEventListener("click", e => {
@@ -916,6 +993,8 @@
       }
       case "home": goHome(); break;
       case "gohome": view = "home"; render(); window.scrollTo(0, 0); break;
+      case "siglas": view = "siglas"; render(); window.scrollTo(0, 0); break;
+      case "sigjump": { e.preventDefault(); const t = document.getElementById("sig-" + el.dataset.l); if (t) t.scrollIntoView({ behavior: "smooth" }); break; }
       case "cmds": cmdTab = el.dataset.tab || "test"; view = "cmds"; render(); window.scrollTo(0, 0); break;
       case "cmdtab": if (cmdTab === "test") readCmdForm(); cmdTab = el.dataset.tab; render(); break;
       case "cmdtema": readCmdForm(); cmdOpts.tema = +el.dataset.t; cmdOpts.failed = false; store.set("cmdOpts", cmdOpts); render(); break;
@@ -936,6 +1015,7 @@
       case "pick": pick(+el.dataset.pos); break;
       case "check": check(); break;
       case "next": move(1); break;
+      case "examnext": examNext(); break;
       case "prev": move(-1); break;
       case "skip": move(1); break;
       case "goto": session.idx = +el.dataset.i; render(); break;
@@ -982,10 +1062,12 @@
     if (el.dataset.act === "allorder") { settings.allOrder = el.value; store.set("settings", settings); }
     if (el.dataset.act === "unseenOnly") { settings.unseenOnly = el.checked; store.set("settings", settings); render(); }
     if (el.id === "sheettema") { sheetTema = +el.value; renderSheet(); }
+    if (el.id === "sigtema") { sigTema = +el.value; renderSigList(); }
   });
 
   $app.addEventListener("input", e => {
     if (e.target.id === "sheetq") { sheetQuery = e.target.value; renderSheet(); }
+    if (e.target.id === "sigq") { sigQuery = e.target.value; renderSigList(); }
   });
 
   document.addEventListener("keydown", e => {
@@ -999,7 +1081,7 @@
     const k = e.key.toLowerCase();
     const idx = ["a", "b", "c", "d"].indexOf(k) !== -1 ? ["a", "b", "c", "d"].indexOf(k) : ["1", "2", "3", "4"].indexOf(k);
     if (idx !== -1) { e.preventDefault(); pick(idx); return; }
-    if (e.key === "ArrowRight") { e.preventDefault(); move(1); return; }
+    if (e.key === "ArrowRight") { e.preventDefault(); if (view === "exam") examNext(); else move(1); return; }
     if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); return; }
     if (e.key === "Enter" && view === "quiz") {
       if (e.target.closest && e.target.closest("button") && !e.target.closest(".opt")) return; // deja que el botón enfocado actúe
